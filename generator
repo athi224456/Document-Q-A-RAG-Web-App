@@ -1,0 +1,177 @@
+"""
+generator.py
+------------
+Turns a question + retrieved chunks into an answer.
+
+Three backends:
+  - "extractive"  (default): no API key, no internet needed. Ranks
+    sentences from the retrieved chunks by overlap with the question
+    and assembles the most relevant ones. Always available as a
+    fallback.
+  - "openai":     calls the Chat Completions API. Requires OPENAI_API_KEY.
+  - "anthropic":  calls the Messages API. Requires ANTHROPIC_API_KEY.
+
+If a real LLM backend is selected but fails (missing key, network
+error, bad response), generation falls back to the extractive method
+so the app never dead-ends on a broken API call.
+"""
+import re
+
+import requests
+
+import config
+from chunking import split_sentences
+
+_STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "of", "to", "in", "on",
+    "for", "and", "or", "what", "how", "why", "when", "where", "who",
+    "does", "do", "did", "with", "this", "that", "it", "as", "be", "by",
+    "at", "from", "which",
+}
+
+
+def _keywords(text: str) -> set:
+    words = re.findall(r"[a-zA-Z0-9']+", text.lower())
+    return {w for w in words if w not in _STOPWORDS and len(w) > 1}
+
+
+def _extractive_answer(question: str, chunks: list) -> str:
+    if not chunks:
+        return ("I couldn't find anything in the uploaded documents that "
+                "relates to that question. Try rephrasing it, or upload a "
+                "document that covers this topic.")
+
+    q_keywords = _keywords(question)
+
+    def score_sentences(min_coverage: float) -> list:
+        scored = []
+        for chunk in chunks:
+            for sentence in split_sentences(chunk["text"]):
+                s_keywords = _keywords(sentence)
+                if not s_keywords:
+                    continue
+                overlap = len(q_keywords & s_keywords)
+                if overlap == 0:
+                    continue
+                coverage = overlap / max(len(q_keywords), 1)
+                if coverage < min_coverage:
+                    continue
+                # reward sentences that cover a larger share of the
+                # question's keywords, weighted lightly by the chunk's
+                # retrieval score
+                score = coverage + 0.15 * chunk["score"]
+                scored.append((score, sentence))
+        return scored
+
+    # first pass: require a real share of keyword overlap, so answers
+    # aren't padded with tangential sentences that share one common word
+    strict_threshold = 0.5 if len(q_keywords) >= 3 else (1.0 / max(len(q_keywords), 1))
+    scored_sentences = score_sentences(strict_threshold)
+
+    # second pass: relax to "shares at least one keyword" if nothing
+    # cleared the bar - vocabulary mismatch (e.g. "how long" vs. a date)
+    # shouldn't mean we have nothing to say
+    if not scored_sentences:
+        scored_sentences = score_sentences(0.0)
+
+    if not scored_sentences:
+        # still nothing - fall back to the single most relevant chunk,
+        # trimmed to a readable length
+        top = chunks[0]["text"]
+        snippet = " ".join(top.split()[:60])
+        ellipsis = "..." if len(top.split()) > 60 else ""
+        return f"I didn't find an exact match, but the most relevant passage says: \"{snippet}{ellipsis}\""
+
+    scored_sentences.sort(key=lambda x: x[0], reverse=True)
+    seen = set()
+    picked = []
+    for score, sentence in scored_sentences:
+        if sentence in seen:
+            continue
+        seen.add(sentence)
+        picked.append(sentence)
+        if len(picked) == 3:
+            break
+
+    return " ".join(picked)
+
+
+def _build_prompt(question: str, chunks: list) -> str:
+    context_blocks = []
+    for i, chunk in enumerate(chunks, start=1):
+        context_blocks.append(f"[Source {i}: {chunk['filename']}]\n{chunk['text']}")
+    context = "\n\n".join(context_blocks)
+    return (
+        "Answer the question using only the context below. If the context "
+        "does not contain the answer, say so clearly instead of guessing.\n\n"
+        f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+    )
+
+
+def _openai_answer(question: str, chunks: list) -> str:
+    if not config.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    prompt = _build_prompt(question, chunks)
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.OPENAI_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": 500,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def _anthropic_answer(question: str, chunks: list) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    prompt = _build_prompt(question, chunks)
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": config.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.ANTHROPIC_MODEL,
+            "max_tokens": 500,
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return "".join(block.get("text", "") for block in data.get("content", [])).strip()
+
+
+def generate_answer(question: str, chunks: list) -> dict:
+    """Returns {"answer": str, "provider": str, "fallback": bool}."""
+    provider = config.LLM_PROVIDER
+
+    if provider == "openai":
+        try:
+            return {"answer": _openai_answer(question, chunks), "provider": "openai", "fallback": False}
+        except Exception:
+            pass
+    elif provider == "anthropic":
+        try:
+            return {"answer": _anthropic_answer(question, chunks), "provider": "anthropic", "fallback": False}
+        except Exception:
+            pass
+
+    # default / fallback path
+    answer = _extractive_answer(question, chunks)
+    fell_back = provider != "extractive"
+    return {"answer": answer, "provider": "extractive", "fallback": fell_back}
