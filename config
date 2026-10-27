@@ -1,0 +1,38 @@
+"""
+config.py
+---------
+Single place for paths, chunking parameters, and LLM provider settings.
+"""
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPLOAD_DIR = os.path.join(BASE_DIR, "data", "uploads")
+INDEX_DIR = os.path.join(BASE_DIR, "data", "index")
+INDEX_PATH = os.path.join(INDEX_DIR, "index.joblib")
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(INDEX_DIR, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+MAX_CONTENT_LENGTH = 25 * 1024 * 1024  # 25 MB per upload
+
+# --- Chunking ---
+CHUNK_SIZE_WORDS = 220        # words per chunk
+CHUNK_OVERLAP_WORDS = 40      # overlap between consecutive chunks
+
+# --- Retrieval ---
+TOP_K = 4                     # chunks retrieved per question
+
+# --- Generation ---
+# "extractive" works with zero setup (no API key, no internet).
+# Set DOC_QA_LLM_PROVIDER=openai or =anthropic and the matching API key
+# env var to use a real LLM for more fluent, synthesized answers.
+LLM_PROVIDER = os.environ.get("DOC_QA_LLM_PROVIDER", "extractive").lower()
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+SECRET_KEY = os.environ.get("DOC_QA_SECRET_KEY", "dev-secret-change-in-production")
