@@ -1,0 +1,43 @@
+"""
+document_loader.py
+-------------------
+Extracts plain text from an uploaded file. Supports PDF, DOCX, TXT, and MD.
+"""
+import os
+
+from pypdf import PdfReader
+import docx
+
+
+def load_text(filepath: str) -> str:
+    """Dispatches to the right extractor based on file extension."""
+    ext = os.path.splitext(filepath)[1].lower()
+
+    if ext == ".pdf":
+        return _load_pdf(filepath)
+    elif ext == ".docx":
+        return _load_docx(filepath)
+    elif ext in (".txt", ".md"):
+        return _load_plain_text(filepath)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+
+def _load_pdf(filepath: str) -> str:
+    reader = PdfReader(filepath)
+    pages = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        pages.append(text)
+    return "\n\n".join(pages)
+
+
+def _load_docx(filepath: str) -> str:
+    document = docx.Document(filepath)
+    paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+    return "\n\n".join(paragraphs)
+
+
+def _load_plain_text(filepath: str) -> str:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
