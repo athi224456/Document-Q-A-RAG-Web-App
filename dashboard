@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Doc Q&A{% endblock %}
+{% block content %}
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Ask your documents anything.</h1>
+    <p>Upload PDFs, Word docs, or text files. Every question is answered using retrieval-augmented generation — the app finds the most relevant passages in your own files before answering, and always shows its sources.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Index</div>
+    <h2 class="section-title">What's loaded right now</h2>
+    <div class="stats-strip">
+      <div class="stat"><div class="v">{{ num_documents }}</div><div class="k">documents</div></div>
+      <div class="stat"><div class="v">{{ num_chunks }}</div><div class="k">searchable chunks</div></div>
+      <div class="stat"><div class="v mono" style="font-size:18px;">{{ provider }}</div><div class="k">answer provider</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Add knowledge</div>
+    <h2 class="section-title">Upload a document</h2>
+    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+      <div class="dropzone">
+        <p>PDF, DOCX, TXT, or MD — up to 25 MB</p>
+        <input type="file" name="files" multiple required accept=".pdf,.docx,.txt,.md">
+        <div class="upload-row">
+          <button type="submit" class="btn">Upload &amp; index</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Library</div>
+    <h2 class="section-title">Uploaded documents</h2>
+
+    {% if documents %}
+    <table class="doclist">
+      <thead>
+        <tr><th>Filename</th><th>Chunks</th><th>Uploaded</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for doc in documents %}
+        <tr>
+          <td>{{ doc.filename }}</td>
+          <td class="mono">{{ doc.num_chunks }}</td>
+          <td class="mono">{{ doc.uploaded_at }}</td>
+          <td>
+            <form class="remove-form" method="POST" action="{{ url_for('remove_document', doc_id=doc.doc_id) }}">
+              <button type="submit">remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No documents yet. Upload one above to start asking questions.</div>
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}
