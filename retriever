@@ -1,0 +1,118 @@
+"""
+retriever.py
+------------
+A TF-IDF based retrieval index over document chunks. No embedding model
+download required, so it works fully offline out of the box. Swappable
+later for a dense embedding index (e.g. sentence-transformers + FAISS)
+without changing the rest of the pipeline, since callers only use
+add_document() / build() / search().
+"""
+import os
+import uuid
+from datetime import datetime
+
+import joblib
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+import config
+from chunking import chunk_text
+
+
+class DocumentIndex:
+    def __init__(self):
+        self.documents = []   # [{doc_id, filename, uploaded_at, num_chunks}]
+        self.chunks = []      # [{chunk_id, doc_id, filename, text}]
+        self.vectorizer = None
+        self.matrix = None
+
+    # ---------- Ingestion ----------
+
+    def add_document(self, filename: str, text: str) -> dict:
+        doc_id = str(uuid.uuid4())[:8]
+        pieces = chunk_text(text)
+
+        if not pieces:
+            raise ValueError("No extractable text found in this document.")
+
+        for i, piece in enumerate(pieces):
+            self.chunks.append({
+                "chunk_id": f"{doc_id}-{i}",
+                "doc_id": doc_id,
+                "filename": filename,
+                "text": piece,
+            })
+
+        doc_record = {
+            "doc_id": doc_id,
+            "filename": filename,
+            "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "num_chunks": len(pieces),
+        }
+        self.documents.append(doc_record)
+        self._rebuild_vectorizer()
+        return doc_record
+
+    def remove_document(self, doc_id: str):
+        self.documents = [d for d in self.documents if d["doc_id"] != doc_id]
+        self.chunks = [c for c in self.chunks if c["doc_id"] != doc_id]
+        self._rebuild_vectorizer()
+
+    def clear(self):
+        self.documents = []
+        self.chunks = []
+        self.vectorizer = None
+        self.matrix = None
+
+    def _rebuild_vectorizer(self):
+        if not self.chunks:
+            self.vectorizer = None
+            self.matrix = None
+            return
+        texts = [c["text"] for c in self.chunks]
+        self.vectorizer = TfidfVectorizer(
+            stop_words="english", ngram_range=(1, 2), max_features=20000
+        )
+        self.matrix = self.vectorizer.fit_transform(texts)
+
+    # ---------- Retrieval ----------
+
+    def search(self, query: str, top_k: int = None) -> list:
+        top_k = top_k or config.TOP_K
+        if not self.chunks or self.vectorizer is None:
+            return []
+
+        query_vec = self.vectorizer.transform([query])
+        scores = cosine_similarity(query_vec, self.matrix)[0]
+
+        ranked_idx = scores.argsort()[::-1][:top_k]
+        results = []
+        for idx in ranked_idx:
+            score = float(scores[idx])
+            if score <= 0:
+                continue
+            chunk = dict(self.chunks[idx])
+            chunk["score"] = round(score, 4)
+            results.append(chunk)
+        return results
+
+    # ---------- Stats ----------
+
+    @property
+    def num_documents(self) -> int:
+        return len(self.documents)
+
+    @property
+    def num_chunks(self) -> int:
+        return len(self.chunks)
+
+    # ---------- Persistence ----------
+
+    def save(self, path: str = config.INDEX_PATH):
+        joblib.dump(self, path)
+
+    @staticmethod
+    def load(path: str = config.INDEX_PATH) -> "DocumentIndex":
+        if os.path.exists(path):
+            return joblib.load(path)
+        return DocumentIndex()
