@@ -1,0 +1,50 @@
+"""
+chunking.py
+-----------
+Splits raw document text into overlapping, word-bounded chunks, and
+splits text into sentences for extractive answer generation.
+"""
+import re
+
+import config
+
+
+def clean_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def chunk_text(text: str, chunk_size: int = None, overlap: int = None) -> list:
+    """Splits text into overlapping chunks of ~chunk_size words each."""
+    chunk_size = chunk_size or config.CHUNK_SIZE_WORDS
+    overlap = overlap or config.CHUNK_OVERLAP_WORDS
+
+    text = clean_text(text)
+    words = text.split()
+    if not words:
+        return []
+
+    chunks = []
+    start = 0
+    step = max(chunk_size - overlap, 1)
+    while start < len(words):
+        chunk_words = words[start:start + chunk_size]
+        chunks.append(" ".join(chunk_words))
+        if start + chunk_size >= len(words):
+            break
+        start += step
+    return chunks
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])")
+
+
+def split_sentences(text: str) -> list:
+    """Lightweight sentence splitter (no external NLP model required)."""
+    text = clean_text(text)
+    if not text:
+        return []
+    sentences = _SENTENCE_SPLIT_RE.split(text)
+    return [s.strip() for s in sentences if s.strip()]
