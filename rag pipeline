@@ -1,0 +1,63 @@
+"""
+rag_pipeline.py
+---------------
+Orchestrates ingestion (load -> chunk -> index) and question answering
+(retrieve -> generate).
+"""
+import os
+
+import config
+from document_loader import load_text
+from generator import generate_answer
+from retriever import DocumentIndex
+
+
+class RAGPipeline:
+    def __init__(self):
+        self.index = DocumentIndex.load()
+
+    # ---------- Ingestion ----------
+
+    def ingest_file(self, filepath: str, filename: str) -> dict:
+        text = load_text(filepath)
+        doc_record = self.index.add_document(filename, text)
+        self.index.save()
+        return doc_record
+
+    def remove_document(self, doc_id: str):
+        self.index.remove_document(doc_id)
+        self.index.save()
+
+    def clear_all(self):
+        self.index.clear()
+        self.index.save()
+
+    # ---------- Question answering ----------
+
+    def answer(self, question: str) -> dict:
+        chunks = self.index.search(question)
+        result = generate_answer(question, chunks)
+        result["sources"] = [
+            {
+                "filename": c["filename"],
+                "snippet": c["text"][:280] + ("..." if len(c["text"]) > 280 else ""),
+                "score": round(c["score"] * 100, 1),
+            }
+            for c in chunks
+        ]
+        result["question"] = question
+        return result
+
+    # ---------- Stats ----------
+
+    @property
+    def documents(self):
+        return self.index.documents
+
+    @property
+    def num_documents(self):
+        return self.index.num_documents
+
+    @property
+    def num_chunks(self):
+        return self.index.num_chunks
