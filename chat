@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Chat — Doc Q&A{% endblock %}
+{% block content %}
+
+<header class="hero" style="padding-bottom:20px;">
+  <div class="wrap">
+    <h1>Ask a question.</h1>
+    <p>Answers are drawn only from the documents you've uploaded, with sources shown underneath each one.</p>
+  </div>
+</header>
+
+<section style="border-top:none; padding-top:0;">
+  <div class="wrap">
+
+    {% if not has_documents %}
+      <div class="empty-chat">
+        No documents indexed yet. <a href="{{ url_for('dashboard') }}" style="text-decoration:underline;">Upload one first</a> to start asking questions.
+      </div>
+    {% else %}
+
+      {% if history %}
+      <div class="chat-thread">
+        {% for turn in history %}
+        <div class="bubble-row question">
+          <div class="bubble q">{{ turn.question }}</div>
+        </div>
+        <div class="bubble-row answer">
+          <div class="bubble a">
+            <span class="provider-tag {{ 'fallback' if turn.fallback else '' }}">
+              {{ 'extractive (fallback)' if turn.fallback else turn.provider }}
+            </span>
+            <div>{{ turn.answer }}</div>
+
+            {% if turn.sources %}
+            <details class="sources">
+              <summary>{{ turn.sources|length }} source{{ 's' if turn.sources|length != 1 else '' }}</summary>
+              {% for s in turn.sources %}
+              <div class="source-item">
+                <div class="meta mono">{{ s.filename }} · {{ s.score }}% match</div>
+                {{ s.snippet }}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-chat">Ask your first question below.</div>
+      {% endif %}
+
+      <form method="POST" action="{{ url_for('chat') }}" class="ask-form">
+        <input type="text" name="question" placeholder="What would you like to know?" required autofocus>
+        <button type="submit">Ask</button>
+      </form>
+
+      <div class="upload-row" style="justify-content:flex-start; margin-top:14px;">
+        <form method="POST" action="{{ url_for('reset_chat') }}">
+          <button type="submit" class="btn-outline" style="background:none; border:1px solid var(--line); padding:8px 14px; border-radius:3px; font-size:13px; cursor:pointer;">Clear conversation</button>
+        </form>
+      </div>
+
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}
