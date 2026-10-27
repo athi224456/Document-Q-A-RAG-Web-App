@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Doc Q&A{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a href="{{ url_for('dashboard') }}" class="brand"><span class="mark"></span> doc-qa</a>
+    <div class="navlinks">
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if active=='dashboard' else '' }}">Dashboard</a>
+      <a href="{{ url_for('chat') }}" class="{{ 'active' if active=='chat' else '' }}">Chat</a>
+      <a href="{{ url_for('chat') }}" class="btn">Ask a question</a>
+    </div>
+  </div>
+</nav>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="wrap" style="padding-top:20px;">
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+
+<footer>
+  <div class="wrap">
+    <p>Document Q&amp;A — retrieval-augmented answers over your own files.</p>
+    <p class="mono">provider: {{ active_provider or 'extractive' }}</p>
+  </div>
+</footer>
+
+</body>
+</html>
